@@ -1,3 +1,16 @@
+# Unreleased (backports onto 0.11.3)
+
+Fixes:
+- Encoding with `Predictor::Horizontal` after adding extra samples via
+  `ImageEncoder::extra_samples` no longer corrupts the image. The predictor now
+  differences samples by the full number of samples per pixel, including extra
+  samples, instead of only the samples of the color type.
+
+Compatibility:
+- `encoder::colortype::ColorType::horizontal_predict` takes an additional
+  `samples: usize` argument, the number of samples per pixel including extra
+  samples.
+
 # Version 0.11.3
 
 Additions:

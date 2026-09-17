@@ -27,7 +27,7 @@ macro_rules! test_predict {
             };
 
             let mut predicted = Vec::with_capacity(image_data.len());
-            C::horizontal_predict(&image_data, &mut predicted);
+            C::horizontal_predict(&image_data, C::SAMPLE_FORMAT.len(), &mut predicted);
 
             let sample_size = C::SAMPLE_FORMAT.len();
 
@@ -228,4 +228,99 @@ fn test_rgb_u64_predict_roundtrip() {
 #[test]
 fn test_ycbcr_u8_predict_roundtrip() {
     test_u8_predict_roundtrip::<colortype::YCbCr8>("tiled-jpeg-ycbcr.tif", ColorType::YCbCr(8));
+}
+
+/// Encode `data` as `C` plus the given extra samples with `predictor`, decode it again and return
+/// the decoded colortype and buffer.
+fn encode_decode_with_extra_samples<C: colortype::ColorType>(
+    predictor: Predictor,
+    extra: &[tiff::tags::ExtraSamples],
+    width: u32,
+    height: u32,
+    data: &[C::Inner],
+) -> (ColorType, DecodingResult)
+where
+    [C::Inner]: tiff::encoder::TiffValue,
+{
+    let mut file = Cursor::new(Vec::new());
+    {
+        let mut tiff = TiffEncoder::new(&mut file)
+            .unwrap()
+            .with_predictor(predictor);
+        let mut image = tiff.new_image::<C>(width, height).unwrap();
+        image.extra_samples(extra).unwrap();
+        image.write_data(data).unwrap();
+    }
+
+    file.seek(SeekFrom::Start(0)).unwrap();
+    let mut decoder = Decoder::new(&mut file).unwrap();
+    let colortype = decoder.colortype().unwrap();
+    (colortype, decoder.read_image().unwrap())
+}
+
+/// Samples which differ per channel so that differencing against the wrong neighbour is visible.
+fn extra_sample_pattern(width: u32, height: u32, channels: u32) -> impl Iterator<Item = u32> {
+    (0..height).flat_map(move |y| {
+        (0..width)
+            .flat_map(move |x| (0..channels).map(move |c| (x * 37 + y * 101) * (c + 1) + c * 7919))
+    })
+}
+
+#[test]
+fn test_rgb_u16_horizontal_predict_with_alpha_extra_sample() {
+    use tiff::tags::ExtraSamples;
+
+    let (width, height) = (33, 7);
+    let data: Vec<u16> = extra_sample_pattern(width, height, 4)
+        .map(|v| v as u16)
+        .collect();
+
+    for alpha in [
+        ExtraSamples::AssociatedAlpha,
+        ExtraSamples::UnassociatedAlpha,
+    ] {
+        let (colortype, decoded) = encode_decode_with_extra_samples::<colortype::RGB16>(
+            Predictor::Horizontal,
+            &[alpha],
+            width,
+            height,
+            &data,
+        );
+
+        assert_eq!(colortype, ColorType::RGBA(16), "{alpha:?}");
+        match decoded {
+            DecodingResult::U16(decoded) => assert!(decoded == data, "{alpha:?}"),
+            _ => panic!("Wrong data type"),
+        }
+    }
+}
+
+#[test]
+fn test_gray_u8_horizontal_predict_with_extra_samples() {
+    use tiff::tags::ExtraSamples;
+
+    let (width, height) = (19, 5);
+    let data: Vec<u8> = extra_sample_pattern(width, height, 3)
+        .map(|v| v as u8)
+        .collect();
+
+    let (colortype, decoded) = encode_decode_with_extra_samples::<colortype::Gray8>(
+        Predictor::Horizontal,
+        &[ExtraSamples::Unspecified, ExtraSamples::Unspecified],
+        width,
+        height,
+        &data,
+    );
+
+    assert_eq!(
+        colortype,
+        ColorType::Multiband {
+            bit_depth: 8,
+            num_samples: 3
+        }
+    );
+    match decoded {
+        DecodingResult::U8(decoded) => assert!(decoded == data),
+        _ => panic!("Wrong data type"),
+    }
 }
