@@ -6,6 +6,10 @@ Fixes:
   differences samples by the full number of samples per pixel, including extra
   samples, instead of only the samples of the color type.
 
+Additions:
+- Added `ImageEncoder::icc_profile`, writing an ICC profile to the `IccProfile`
+  tag with the field type `UNDEFINED` as required by the ICC specification.
+
 Compatibility:
 - `encoder::colortype::ColorType::horizontal_predict` takes an additional
   `samples: usize` argument, the number of samples per pixel including extra
